@@ -1,3 +1,19 @@
+
+// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+/*
+FL = FR = BL = BR = 0;
+sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+resize(img, img, Size(640/2, 480/2));
+flip(img, img, -1); // flip so facing right way
+
+imshow("DEBUG", img);
+input = waitKey(0);
+* */
+// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+
+
 // Line trace with pi camera
 #define TESTING 0
 
@@ -56,6 +72,8 @@
 #define COMMAND_LEFT_GREEN 1
 #define COMMAND_RIGHT_GREEN 2
 #define COMMAND_DOUBLE_GREEN 3
+#define COMMAND_DEBUG_STOP 4
+#define COMMAND_ENCODER_MOVE 5
 
 // if this is 0 green will be checked for like normal and handled 
 // when green is detected and handled this is set to 1 UNTIL green is no longer detected at all, then it is set back to 0
@@ -74,6 +92,14 @@ using namespace cv;
 int resolution_width = 1640;
 int resolution_height = 1232;
 
+
+
+	char tx_buffer[256];
+	int stop_motors = 1;
+	int FL = 0, FR = 0, BL = 0, BR = 0;
+	unsigned char rx_buffer[256];
+	int rx_length = 0;
+	int input;
 
 
 
@@ -275,9 +301,1460 @@ char green_square(Mat &img, Mat &line){
 
 
 
+
+void handle_gap(){
+	int gap_centered = 0; // flag to indicate if the gap is centered
+	
+	
+	// this is going to be a lot of work..... need to backup and straighten out on the gaps....
+	Mat img;
+	
+	
+	int error = 0;
+	int target_speed = -40; // line trace backwards to line up with the gap
+	float kp = 1.5;
+	float base_kp = kp;
+	int delta;
+	do{
+		
+		if (!cameras[ROOM1_CAM].getVideoFrame(img, 1000)) {
+			cameras[ROOM1_CAM].stopVideo();
+			break;
+		}
+		// resize image that contains full FOV but will be small for fast compute later
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("GAP IMG", img);
+		input = waitKey(1);
+		
+		// grayscale, blur, and threshold the line
+		Mat img_line, line_only;
+		cvtColor(img, img_line, COLOR_BGR2GRAY);
+		medianBlur(img_line, img_line, 3);
+		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
+		// get the contours of the whole line
+		vector<vector<Point>> contours_line;
+		findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		
+		if(contours_line.size() > 0){
+			
+		
+			// find largest contour
+			// max element returns pointer so dereference here
+			vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+			
+			// draw the largest contour (the line)
+			//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+			
+			
+			// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+			drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+			
+			int wide_rect_scalar = 4;
+			int tall_rect_scalar = 10;
+			// top slice
+			Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat top_img = line_only(top_rect);
+			//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+			
+			// bottom slice
+			Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat bot_img = line_only(bot_rect);
+			//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+			
+			
+			// middle slice
+			Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+			Mat mid_img = line_only(mid_rect);
+			//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+			
+			// left slice
+			Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat left_img = line_only(left_rect);
+			//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+			
+			// right slice
+			Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat right_img = line_only(right_rect);
+			//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+			
+			
+			// slop from bot line to top line or bot to mid...
+			int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+			Moments m;
+			
+			vector<vector<Point>> top_contour;
+			findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(top_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(top_contour[0]);
+				// get center x and center y
+				topx = m.m10 / m.m00; // col
+				topy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> mid_contour;
+			findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(mid_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(mid_contour[0]);
+				// get center x and center y
+				midx = m.m10 / m.m00; // col
+				midy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> bot_contour;
+			findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(bot_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(bot_contour[0]);
+				// get center x and center y
+				botx = m.m10 / m.m00; // col
+				boty = m.m01 / m.m00; // row
+			}
+			
+			// fix how the centroids are off due to slicing
+			// top if fine where it is
+			// bot is off in the y direction. its shifted, have to add to it based on the amount that was modified for slicing
+			boty += ((wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar));
+			// mid is off in the y direction. its shifted, fix like bot
+			midy += (line_only.rows/wide_rect_scalar);
+			
+			topy += 0; // just getting rid of a dumb warning
+			
+			
+			
+			
+			// CHECK IF IT SEEMS TO BE A GAP OR A VERY SHARP TURN?????
+			
+			
+			
+			
+			
+			
+			
+			if(topx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp + .5;
+				gap_centered = 1;
+				break;//??
+			}
+			else if(midx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp + .3;
+			}
+			else if(botx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp;
+			}
+			
+			// minimize error if its so close to the line
+			//if(abs(error) < 20){
+			//	error = 0;
+			//}
+			
+			// if line is centered and on the last part of the line, its all good
+			//if(topx <= 0 && midx <= 0 && botx > 0 && error == 0){
+			//if(error == 0){
+			//	gap_centered = 1;
+			//}
+			
+			
+			delta = (error * kp);
+			delta *= -1;
+			FL = target_speed + delta;
+			BL = target_speed + delta;
+			FR = target_speed - delta;
+			BR = target_speed - delta;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+			
+			
+			
+		
+		}
+		else{
+			// LOST THE LINE, need to back up and find it again??
+			/*
+			FL = -5; // FL contains the distance in CM when command encoder move is used
+			FR = BL = BR = 0;
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));	
+			// wait for arduino side to send back the ALL DONE command
+			if(!TESTING && !stop_motors){
+				rx_length = 0;
+				while (rx_length <=0) {				 								//remove the while to make this non-blocking
+					rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+				}
+				
+				rx_buffer[rx_length] = '\0';
+				printf("Continue command: %s\n", rx_buffer);
+			}
+			*/
+			gap_centered = 2; // this is kindof an error code.....
+		}
+		
+		
+	} while(!gap_centered);
+	
+	//FL = FR = BL = BR = 0;
+	//sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+	//write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+	
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	FL = FR = BL = BR = 0;
+	sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+	write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+	cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+	resize(img, img, Size(640/2, 480/2));
+	flip(img, img, -1); // flip so facing right way
+	
+	imshow("DEBUG42", img);
+	input = waitKey(0);
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
+	
+	// make sure the line is straight
+	int line_angle = 1000;
+	do{
+		cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		// grayscale, blur, and threshold the line
+		Mat img_line, line_only;
+		cvtColor(img, img_line, COLOR_BGR2GRAY);
+		medianBlur(img_line, img_line, 3);
+		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
+		// get the contours of the whole line
+			vector<vector<Point>> contours_line;
+			findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			
+			if(contours_line.size() > 0){
+				
+			
+				// find largest contour
+				// max element returns pointer so dereference here
+				vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+				
+				// draw the largest contour (the line)
+				//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+				
+				
+				// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+				line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+				drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+				
+				int wide_rect_scalar = 4;
+				int tall_rect_scalar = 10;
+				// top slice
+				Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+				Mat top_img = line_only(top_rect);
+				//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+				
+				// bottom slice
+				Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+				Mat bot_img = line_only(bot_rect);
+				//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+				
+				
+				// middle slice
+				Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+				Mat mid_img = line_only(mid_rect);
+				//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+				
+				// left slice
+				Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+				Mat left_img = line_only(left_rect);
+				//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+				
+				// right slice
+				Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+				Mat right_img = line_only(right_rect);
+				//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+				
+				
+				// slop from bot line to top line or bot to mid...
+				int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+				int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+				Moments m;
+				
+				vector<vector<Point>> top_contour;
+				findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+				if(top_contour.size() > 0){
+					// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+					m = moments(top_contour[0]);
+					// get center x and center y
+					topx = m.m10 / m.m00; // col
+					topy = m.m01 / m.m00; // row
+				}
+				
+				vector<vector<Point>> mid_contour;
+				findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+				if(mid_contour.size() > 0){
+					// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+					m = moments(mid_contour[0]);
+					// get center x and center y
+					midx = m.m10 / m.m00; // col
+					midy = m.m01 / m.m00; // row
+				}
+				
+				vector<vector<Point>> bot_contour;
+				findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+				if(bot_contour.size() > 0){
+					// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+					m = moments(bot_contour[0]);
+					// get center x and center y
+					botx = m.m10 / m.m00; // col
+					boty = m.m01 / m.m00; // row
+				}
+				
+				// fix how the centroids are off due to slicing
+				// top if fine where it is
+				// bot is off in the y direction. its shifted, have to add to it based on the amount that was modified for slicing
+				boty += ((wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar));
+				// mid is off in the y direction. its shifted, fix like bot
+				midy += (line_only.rows/wide_rect_scalar);
+				
+				topy += 0; // just getting rid of a dumb warning
+				
+				
+				
+				
+				// CHECK IF IT SEEMS TO BE A GAP OR A VERY SHARP TURN?????
+				vector<vector<Point>> left_contour;
+				findContours(left_img, left_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+				if(left_contour.size() > 0){
+					// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+					m = moments(left_contour[0]);
+					// get center x and center y
+					leftx = m.m10 / m.m00; // col
+					lefty = m.m01 / m.m00; // row
+				}
+				
+				vector<vector<Point>> right_contour;
+				findContours(right_img, right_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+				if(right_contour.size() > 0){
+					// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+					m = moments(right_contour[0]);
+					// get center x and center y
+					rightx = m.m10 / m.m00; // col
+					righty = m.m01 / m.m00; // row
+				}
+				
+				
+				
+				if(rightx > 0){
+					// very sharp right turn
+					
+					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					FL = FR = BL = BR = 0;
+					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+					cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+					resize(img, img, Size(640/2, 480/2));
+					flip(img, img, -1); // flip so facing right way
+					
+					imshow("SR", img);
+					input = waitKey(0);
+					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					
+					do{
+						cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+						resize(img, img, Size(640/2, 480/2));
+						flip(img, img, -1); // flip so facing right way
+						
+						// grayscale, blur, and threshold the line
+						Mat img_line, line_only;
+						cvtColor(img, img_line, COLOR_BGR2GRAY);
+						medianBlur(img_line, img_line, 3);
+						threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+						
+						// get the contours of the whole line
+						vector<vector<Point>> contours_line;
+						findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+						
+						if(contours_line.size() > 0){
+							
+						
+							// find largest contour
+							// max element returns pointer so dereference here
+							vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+							
+							// draw the largest contour (the line)
+							//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+							
+							
+							// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+							line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+							drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+							
+							int wide_rect_scalar = 4;
+							int tall_rect_scalar = 10;
+							// top slice
+							Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+							Mat top_img = line_only(top_rect);
+							//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+							
+							// bottom slice
+							Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+							Mat bot_img = line_only(bot_rect);
+							//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+							
+							
+							// middle slice
+							Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+							Mat mid_img = line_only(mid_rect);
+							//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+							
+							// left slice
+							Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+							Mat left_img = line_only(left_rect);
+							//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+							
+							// right slice
+							Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+							Mat right_img = line_only(right_rect);
+							//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+							
+							
+							// slop from bot line to top line or bot to mid...
+							int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+							int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+							Moments m;
+							
+							vector<vector<Point>> top_contour;
+							findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(top_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(top_contour[0]);
+								// get center x and center y
+								topx = m.m10 / m.m00; // col
+								topy = m.m01 / m.m00; // row
+							}
+							
+							vector<vector<Point>> mid_contour;
+							findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(mid_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(mid_contour[0]);
+								// get center x and center y
+								midx = m.m10 / m.m00; // col
+								midy = m.m01 / m.m00; // row
+							}
+							
+							vector<vector<Point>> bot_contour;
+							findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(bot_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(bot_contour[0]);
+								// get center x and center y
+								botx = m.m10 / m.m00; // col
+								boty = m.m01 / m.m00; // row
+							}
+						
+						
+							FL = 40;
+							BL = 40;
+							FR = -40;
+							BR = -40;
+							
+							
+							if(abs(midx - (line_only.cols/2)) < 10) {
+								break;
+							}
+						
+							sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+							write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+						} // end line contour size > 1 if statement
+						
+						
+						
+					}while(1);
+					
+					
+					
+					
+					
+					
+					// IF BOTTOM CONTOUR WIDTH IS REALLY BIG.... NEED TO MOVE FORWARD!!!
+					
+					
+					
+					
+										
+					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW
+					return;
+					
+				}
+				else if(leftx > 0){
+					// very sharp left turn
+					
+					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					FL = FR = BL = BR = 0;
+					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+					cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+					resize(img, img, Size(640/2, 480/2));
+					flip(img, img, -1); // flip so facing right way
+					
+					imshow("SL", img);
+					input = waitKey(0);
+					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					
+					
+					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW
+					do{
+						cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+						resize(img, img, Size(640/2, 480/2));
+						flip(img, img, -1); // flip so facing right way
+						
+						// grayscale, blur, and threshold the line
+						Mat img_line, line_only;
+						cvtColor(img, img_line, COLOR_BGR2GRAY);
+						medianBlur(img_line, img_line, 3);
+						threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+						
+						// get the contours of the whole line
+						vector<vector<Point>> contours_line;
+						findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+						
+						if(contours_line.size() > 0){
+							
+						
+							// find largest contour
+							// max element returns pointer so dereference here
+							vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+							
+							// draw the largest contour (the line)
+							//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+							
+							
+							// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+							line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+							drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+							
+							int wide_rect_scalar = 4;
+							int tall_rect_scalar = 10;
+							// top slice
+							Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+							Mat top_img = line_only(top_rect);
+							//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+							
+							// bottom slice
+							Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+							Mat bot_img = line_only(bot_rect);
+							//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+							
+							
+							// middle slice
+							Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+							Mat mid_img = line_only(mid_rect);
+							//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+							
+							// left slice
+							Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+							Mat left_img = line_only(left_rect);
+							//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+							
+							// right slice
+							Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+							Mat right_img = line_only(right_rect);
+							//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+							
+							
+							// slop from bot line to top line or bot to mid...
+							int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+							int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+							Moments m;
+							
+							vector<vector<Point>> top_contour;
+							findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(top_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(top_contour[0]);
+								// get center x and center y
+								topx = m.m10 / m.m00; // col
+								topy = m.m01 / m.m00; // row
+							}
+							
+							vector<vector<Point>> mid_contour;
+							findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(mid_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(mid_contour[0]);
+								// get center x and center y
+								midx = m.m10 / m.m00; // col
+								midy = m.m01 / m.m00; // row
+							}
+							
+							vector<vector<Point>> bot_contour;
+							findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+							if(bot_contour.size() > 0){
+								// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+								m = moments(bot_contour[0]);
+								// get center x and center y
+								botx = m.m10 / m.m00; // col
+								boty = m.m01 / m.m00; // row
+							}
+						
+						
+							FL = -40;
+							BL = -40;
+							FR = 40;
+							BR = 40;
+							
+							
+							if(abs(midx - (line_only.cols/2)) < 10) {
+								break;
+							}
+						
+							sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+							write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+						} // end line contour size > 1 if statement
+						
+						
+						
+					}while(1);
+					
+					
+					
+					
+					// IF BOTTOM CONTOUR WIDTH IS REALLY BIG.... NEED TO MOVE FORWARD!!!
+					
+					
+					return;
+				}
+				
+				
+				
+				
+				
+				
+				if(topx > 0 && botx > 0){
+					line_angle = atanf(((float)boty-topy) / (botx-topx)) * (180.0/M_PI);
+					if(line_angle > 0) line_angle -= 90;
+					else if(line_angle < 0) line_angle += 90;
+				}
+				else if(midx > 0 && botx > 0){
+					line_angle = atanf(((float)boty-midy) / (botx-midx)) * (180.0/M_PI);
+					if(line_angle > 0) line_angle -= 90;
+					else if(line_angle < 0) line_angle += 90;
+				}
+
+				cout << "LINE ANGLE: " << line_angle << endl;
+
+				
+				if(line_angle > 0){
+					FL = 40;
+					BL = 40;
+					FR = -40;
+					BR = -40;
+				}
+				else{
+					FL = -40;
+					BL = -40;
+					FR = 40;
+					BR = 40;
+				}
+				
+				if(abs(line_angle) < 3){
+					break;
+				}
+				
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+			}
+			else{
+				// just keep driving forward
+				FL = target_speed;
+				BL = target_speed;
+				FR = target_speed;
+				BR = target_speed;
+				
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+			}
+		}while(abs(line_angle) > 3);
+		
+		
+		FL = FR = BL = BR = 0;
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+		
+		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+		FL = FR = BL = BR = 0;
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+		cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("DEBUG42", img);
+		input = waitKey(0);
+		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
+	
+		this_thread::sleep_for(50ms);
+		
+		
+		// JUST DRIVE FORWARD WHILE THERE IS A LINE... THEN DRIVE WHILE THERE IS NO LINE...
+		target_speed = 40;
+		FL = target_speed;
+		BL = target_speed;
+		FR = target_speed;
+		BR = target_speed;
+				
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+		
+		int num_contours = 1;
+		do{
+			cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+			resize(img, img, Size(640/2, 480/2));
+			flip(img, img, -1); // flip so facing right way
+			
+			// grayscale, blur, and threshold the line
+			Mat img_line, line_only;
+			cvtColor(img, img_line, COLOR_BGR2GRAY);
+			medianBlur(img_line, img_line, 3);
+			threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+			
+			// get the contours of the whole line
+			vector<vector<Point>> contours_line;
+			findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			num_contours = contours_line.size();
+		}while(num_contours > 0);
+		
+		target_speed = 40;
+		FL = target_speed;
+		BL = target_speed;
+		FR = target_speed;
+		BR = target_speed;
+				
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+	
+		do{
+			cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+			resize(img, img, Size(640/2, 480/2));
+			flip(img, img, -1); // flip so facing right way
+			
+			// grayscale, blur, and threshold the line
+			Mat img_line, line_only;
+			cvtColor(img, img_line, COLOR_BGR2GRAY);
+			medianBlur(img_line, img_line, 3);
+			threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+			
+			// get the contours of the whole line
+			vector<vector<Point>> contours_line;
+			findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			num_contours = contours_line.size();
+		}while(num_contours <= 0);
+		
+		
+		// LINE HAS BEEN FOUND !!!!!
+	
+	
+	// need to drive forward looking for the next line... OR DETERMINE IF THIS IS ACTUALLY JUST A SHARP TURN!!!!
+	
+	// flag to indicate new line found or not
+	/*
+	int found_line = 0;
+	do{
+		if (!cameras[ROOM1_CAM].getVideoFrame(img, 1000)) {
+			cameras[ROOM1_CAM].stopVideo();
+			break;
+		}
+		// resize image that contains full FOV but will be small for fast compute later
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("CROSS GAP IMG", img);
+		input = waitKey(1);
+		
+		// grayscale, blur, and threshold the line
+		Mat img_line, line_only;
+		cvtColor(img, img_line, COLOR_BGR2GRAY);
+		medianBlur(img_line, img_line, 3);
+		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
+		// get the contours of the whole line
+		vector<vector<Point>> contours_line;
+		findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		
+		if(contours_line.size() > 0){
+			
+		
+			// find largest contour
+			// max element returns pointer so dereference here
+			vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+			
+			// draw the largest contour (the line)
+			//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+			
+			
+			// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+			drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+			
+			int wide_rect_scalar = 4;
+			int tall_rect_scalar = 10;
+			// top slice
+			Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat top_img = line_only(top_rect);
+			//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+			
+			// bottom slice
+			Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat bot_img = line_only(bot_rect);
+			//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+			
+			
+			// middle slice
+			Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+			Mat mid_img = line_only(mid_rect);
+			//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+			
+			// left slice
+			Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat left_img = line_only(left_rect);
+			//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+			
+			// right slice
+			Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat right_img = line_only(right_rect);
+			//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+			
+			
+			// slop from bot line to top line or bot to mid...
+			int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+			int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+			Moments m;
+			
+			vector<vector<Point>> top_contour;
+			findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(top_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(top_contour[0]);
+				// get center x and center y
+				topx = m.m10 / m.m00; // col
+				topy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> mid_contour;
+			findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(mid_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(mid_contour[0]);
+				// get center x and center y
+				midx = m.m10 / m.m00; // col
+				midy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> bot_contour;
+			findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(bot_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(bot_contour[0]);
+				// get center x and center y
+				botx = m.m10 / m.m00; // col
+				boty = m.m01 / m.m00; // row
+			}
+			
+			// fix how the centroids are off due to slicing
+			// top if fine where it is
+			// bot is off in the y direction. its shifted, have to add to it based on the amount that was modified for slicing
+			boty += ((wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar));
+			// mid is off in the y direction. its shifted, fix like bot
+			midy += (line_only.rows/wide_rect_scalar);
+			
+			topy += 0; // just getting rid of a dumb warning
+			
+			
+			
+			
+			// CHECK IF IT SEEMS TO BE A GAP OR A VERY SHARP TURN?????
+			vector<vector<Point>> left_contour;
+			findContours(left_img, left_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(left_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(left_contour[0]);
+				// get center x and center y
+				leftx = m.m10 / m.m00; // col
+				lefty = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> right_contour;
+			findContours(right_img, right_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(right_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(right_contour[0]);
+				// get center x and center y
+				rightx = m.m10 / m.m00; // col
+				righty = m.m01 / m.m00; // row
+			}
+			
+			if(rightx > 0){
+				// very sharp right turn
+				
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				FL = FR = BL = BR = 0;
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+				cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+				resize(img, img, Size(640/2, 480/2));
+				flip(img, img, -1); // flip so facing right way
+				
+				imshow("SR", img);
+				input = waitKey(0);
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				
+			}
+			else if(leftx > 0){
+				// very sharp left turn
+				
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				FL = FR = BL = BR = 0;
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+				cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+				resize(img, img, Size(640/2, 480/2));
+				flip(img, img, -1); // flip so facing right way
+				
+				imshow("SL", img);
+				input = waitKey(0);
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+			}
+			
+			
+			
+			
+			
+			
+			if(topx > 0){
+				error = topx - (line_only.cols/2);
+				kp = 2.0;
+			}
+			else if(midx > 0){
+				error = midx - (line_only.cols/2);
+				kp = 1.5;
+			}
+			else if(botx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp;
+			}
+			
+			// check if the line has officially been fine
+			if(midx > 0){
+				found_line = 1;
+			}
+			
+			delta = (error * kp);
+			FL = target_speed + delta;
+			BL = target_speed + delta;
+			FR = target_speed - delta;
+			BR = target_speed - delta;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+		}
+		else{
+			// just keep driving forward
+			FL = target_speed;
+			BL = target_speed;
+			FR = target_speed;
+			BR = target_speed;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+		}
+			
+			
+			
+		
+	}while(!found_line);
+	
+	*/
+}
+
+
+
+
+
+
+/*
+void handle_gap(){
+	int gap_centered = 0; // flag to indicate if the gap is centered.
+	
+	// backup FIRST, then move forward and center the line...
+	FL = -5; // FL contains the distance in CM when command encoder move is used
+	FR = BL = BR = 0;
+	sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+	write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));	
+	// wait for arduino side to send back the ALL DONE command
+	if(!TESTING && !stop_motors){
+		rx_length = 0;
+		while (rx_length <=0) {				 								//remove the while to make this non-blocking
+			rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+		}
+		
+		rx_buffer[rx_length] = '\0';
+		printf("Continue command: %s\n", rx_buffer);
+	}
+	
+	
+	// this is going to be a lot of work..... need to backup and straighten out on the gaps....
+	Mat img;
+	
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	FL = FR = BL = BR = 0;
+	sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+	write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+	cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+	resize(img, img, Size(640/2, 480/2));
+	flip(img, img, -1); // flip so facing right way
+	
+	imshow("DEBUG", img);
+	input = waitKey(0);
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
+	
+	
+	
+	int error = 0;
+	int target_speed = 30;
+	float kp = 0.5;
+	float base_kp = kp;
+	int delta;
+	do{
+		
+		if (!cameras[ROOM1_CAM].getVideoFrame(img, 1000)) {
+			cameras[ROOM1_CAM].stopVideo();
+			break;
+		}
+		// resize image that contains full FOV but will be small for fast compute later
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("GAP IMG", img);
+		input = waitKey(1);
+		
+		// grayscale, blur, and threshold the line
+		Mat img_line, line_only;
+		cvtColor(img, img_line, COLOR_BGR2GRAY);
+		medianBlur(img_line, img_line, 3);
+		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
+		// get the contours of the whole line
+		vector<vector<Point>> contours_line;
+		findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		
+		if(contours_line.size() > 0){
+			
+		
+			// find largest contour
+			// max element returns pointer so dereference here
+			vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+			
+			// draw the largest contour (the line)
+			//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+			
+			
+			// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+			drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+			
+			int wide_rect_scalar = 4;
+			int tall_rect_scalar = 10;
+			// top slice
+			Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat top_img = line_only(top_rect);
+			//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+			
+			// bottom slice
+			Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat bot_img = line_only(bot_rect);
+			//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+			
+			
+			// middle slice
+			Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+			Mat mid_img = line_only(mid_rect);
+			//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+			
+			// left slice
+			Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat left_img = line_only(left_rect);
+			//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+			
+			// right slice
+			Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat right_img = line_only(right_rect);
+			//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+			
+			
+			// slop from bot line to top line or bot to mid...
+			int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+			Moments m;
+			
+			vector<vector<Point>> top_contour;
+			findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(top_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(top_contour[0]);
+				// get center x and center y
+				topx = m.m10 / m.m00; // col
+				topy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> mid_contour;
+			findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(mid_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(mid_contour[0]);
+				// get center x and center y
+				midx = m.m10 / m.m00; // col
+				midy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> bot_contour;
+			findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(bot_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(bot_contour[0]);
+				// get center x and center y
+				botx = m.m10 / m.m00; // col
+				boty = m.m01 / m.m00; // row
+			}
+			
+			// fix how the centroids are off due to slicing
+			// top if fine where it is
+			// bot is off in the y direction. its shifted, have to add to it based on the amount that was modified for slicing
+			boty += ((wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar));
+			// mid is off in the y direction. its shifted, fix like bot
+			midy += (line_only.rows/wide_rect_scalar);
+			
+			topy += 0; // just getting rid of a dumb warning
+			
+			
+			
+			
+			// CHECK IF IT SEEMS TO BE A GAP OR A VERY SHARP TURN?????
+			
+			
+			
+			
+			
+			
+			
+			if(topx > 0){
+				error = topx - (line_only.cols/2);
+				kp = 1.0;
+			}
+			else if(midx > 0){
+				error = midx - (line_only.cols/2);
+				kp = 0.8;
+			}
+			else if(botx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp;
+			}
+			
+			// minimize error if its so close to the line
+			if(abs(error) < 20){
+				error = 0;
+			}
+			
+			// if line is centered and on the last part of the line, its all good
+			//if(topx <= 0 && midx <= 0 && botx > 0 && error == 0){
+			if(error == 0){
+				gap_centered = 1;
+			}
+			
+			
+			delta = (error * kp);
+			FL = target_speed + delta;
+			BL = target_speed + delta;
+			FR = target_speed - delta;
+			BR = target_speed - delta;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+			
+			
+			
+		
+		}
+		else{
+			// LOST THE LINE, need to back up and find it again??
+			FL = -5; // FL contains the distance in CM when command encoder move is used
+			FR = BL = BR = 0;
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));	
+			// wait for arduino side to send back the ALL DONE command
+			if(!TESTING && !stop_motors){
+				rx_length = 0;
+				while (rx_length <=0) {				 								//remove the while to make this non-blocking
+					rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+				}
+				
+				rx_buffer[rx_length] = '\0';
+				printf("Continue command: %s\n", rx_buffer);
+			}
+		}
+		
+		
+	} while(!gap_centered);
+	
+	
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	FL = FR = BL = BR = 0;
+	sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+	write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+	cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+	resize(img, img, Size(640/2, 480/2));
+	flip(img, img, -1); // flip so facing right way
+	
+	imshow("DEBUG", img);
+	input = waitKey(0);
+	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
+	
+	// need to drive forward looking for the next line... OR DETERMINE IF THIS IS ACTUALLY JUST A SHARP TURN!!!!
+	
+	// flag to indicate new line found or not
+	int found_line = 0;
+	do{
+		if (!cameras[ROOM1_CAM].getVideoFrame(img, 1000)) {
+			cameras[ROOM1_CAM].stopVideo();
+			break;
+		}
+		// resize image that contains full FOV but will be small for fast compute later
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("CROSS GAP IMG", img);
+		input = waitKey(1);
+		
+		// grayscale, blur, and threshold the line
+		Mat img_line, line_only;
+		cvtColor(img, img_line, COLOR_BGR2GRAY);
+		medianBlur(img_line, img_line, 3);
+		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
+		// get the contours of the whole line
+		vector<vector<Point>> contours_line;
+		findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		
+		if(contours_line.size() > 0){
+			
+		
+			// find largest contour
+			// max element returns pointer so dereference here
+			vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+			
+			// draw the largest contour (the line)
+			//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+			
+			
+			// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
+			drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
+			
+			int wide_rect_scalar = 4;
+			int tall_rect_scalar = 10;
+			// top slice
+			Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat top_img = line_only(top_rect);
+			//rectangle(og_img, top_rect, Scalar(127, 0, 0), 1);
+			
+			// bottom slice
+			Rect bot_rect(0, (wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar), line_only.cols, line_only.rows/wide_rect_scalar);
+			Mat bot_img = line_only(bot_rect);
+			//rectangle(og_img, bot_rect, Scalar(0, 0, 127), 1);
+			
+			
+			// middle slice
+			Rect mid_rect(0, line_only.rows/wide_rect_scalar, line_only.cols, (wide_rect_scalar-2) * (line_only.rows/wide_rect_scalar));
+			Mat mid_img = line_only(mid_rect);
+			//rectangle(og_img, mid_rect, Scalar(0, 255, 0), 1);
+			
+			// left slice
+			Rect left_rect(0, 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat left_img = line_only(left_rect);
+			//rectangle(og_img, left_rect, Scalar(127, 0, 127), 1);
+			
+			// right slice
+			Rect right_rect((tall_rect_scalar-1) * (line_only.cols/tall_rect_scalar), 0, line_only.cols/tall_rect_scalar, line_only.rows);
+			Mat right_img = line_only(right_rect);
+			//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
+			
+			
+			// slop from bot line to top line or bot to mid...
+			int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
+			int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+			Moments m;
+			
+			vector<vector<Point>> top_contour;
+			findContours(top_img, top_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(top_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(top_contour[0]);
+				// get center x and center y
+				topx = m.m10 / m.m00; // col
+				topy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> mid_contour;
+			findContours(mid_img, mid_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(mid_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(mid_contour[0]);
+				// get center x and center y
+				midx = m.m10 / m.m00; // col
+				midy = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> bot_contour;
+			findContours(bot_img, bot_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(bot_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(bot_contour[0]);
+				// get center x and center y
+				botx = m.m10 / m.m00; // col
+				boty = m.m01 / m.m00; // row
+			}
+			
+			// fix how the centroids are off due to slicing
+			// top if fine where it is
+			// bot is off in the y direction. its shifted, have to add to it based on the amount that was modified for slicing
+			boty += ((wide_rect_scalar-1) * (line_only.rows/wide_rect_scalar));
+			// mid is off in the y direction. its shifted, fix like bot
+			midy += (line_only.rows/wide_rect_scalar);
+			
+			topy += 0; // just getting rid of a dumb warning
+			
+			
+			
+			
+			// CHECK IF IT SEEMS TO BE A GAP OR A VERY SHARP TURN?????
+			vector<vector<Point>> left_contour;
+			findContours(left_img, left_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(left_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(left_contour[0]);
+				// get center x and center y
+				leftx = m.m10 / m.m00; // col
+				lefty = m.m01 / m.m00; // row
+			}
+			
+			vector<vector<Point>> right_contour;
+			findContours(right_img, right_contour, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			if(right_contour.size() > 0){
+				// find centroid (center of mass)  OR MAYBE bounding box (geometric center)????
+				m = moments(right_contour[0]);
+				// get center x and center y
+				rightx = m.m10 / m.m00; // col
+				righty = m.m01 / m.m00; // row
+			}
+			
+			if(rightx > 0){
+				// very sharp right turn
+				
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				FL = FR = BL = BR = 0;
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+				cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+				resize(img, img, Size(640/2, 480/2));
+				flip(img, img, -1); // flip so facing right way
+				
+				imshow("SR", img);
+				input = waitKey(0);
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				
+			}
+			else if(leftx > 0){
+				// very sharp left turn
+				
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+				FL = FR = BL = BR = 0;
+				sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_ENCODER_MOVE, FL, FR, BL, BR);
+				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+				cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+				resize(img, img, Size(640/2, 480/2));
+				flip(img, img, -1); // flip so facing right way
+				
+				imshow("SL", img);
+				input = waitKey(0);
+				// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+			}
+			
+			
+			
+			
+			
+			
+			if(topx > 0){
+				error = topx - (line_only.cols/2);
+				kp = 2.0;
+			}
+			else if(midx > 0){
+				error = midx - (line_only.cols/2);
+				kp = 1.5;
+			}
+			else if(botx > 0){
+				error = botx - (line_only.cols/2);
+				kp = base_kp;
+			}
+			
+			// check if the line has officially been fine
+			if(midx > 0){
+				found_line = 1;
+			}
+			
+			delta = (error * kp);
+			FL = target_speed + delta;
+			BL = target_speed + delta;
+			FR = target_speed - delta;
+			BR = target_speed - delta;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+		}
+		else{
+			// just keep driving forward
+			FL = target_speed;
+			BL = target_speed;
+			FR = target_speed;
+			BR = target_speed;
+			
+			sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+			write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+		}
+			
+			
+			
+		
+	}while(!found_line);
+	
+	
+}
+*/
+
+
+
+
+
 int main(){
 	
-	setprecision(4); // set precision for float calculations
+	setprecision(4); // set precision for float calculations   (not sure if i need this anymore.....not doing radians to degree calculations anymore.......)
 	
 	
 	
@@ -304,8 +1781,7 @@ int main(){
 	init();
 	
 
-	unsigned char rx_buffer[256];
-	int rx_length = 0;
+	
 	
 	rx_length = read(uart0_filestream, (void*)rx_buffer, 255); // clear buffer???
 
@@ -339,11 +1815,8 @@ int main(){
 	*/
 	
 	
-	char tx_buffer[256];
-	int stop_motors = 1;
-	int FL = 0, FR = 0, BL = 0, BR = 0;
+
 	Mat img;
-	int input;
 	
 	
 	/*  ----------------------------------------------- NEW PID STUFF -----------------------------------------------  */
@@ -605,6 +2078,30 @@ int main(){
 			//cout << "MID CENTROID (" << midx << ", " << midy << ")" << endl;
 			//cout << "BOT CENTROID (" << botx << ", " << boty << ")" << endl;
 			
+			
+			
+			
+			// GAP DETECTION AND HANDLING !!!!!
+			if( topx <= 0 && midx <= 0){
+				//stop_motors = 1; // REMOVE LATER... when done debugging this
+				//sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_DEBUG_STOP, 0, 0, 0, 0);
+				//write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+				
+				
+				// function to handle gap or crazy line???? how to do this???
+				cout << "GAP\nGAP\nGAP\nGAP\nGAP\n" << endl;
+				handle_gap();
+				cout << "done\ndone\ndone\ndone\ndone\n" << endl;
+				
+				
+				continue; // ??? go back to beginning?
+			}
+			
+			
+			
+			
+			
+			
 			// set default values for slopes in case they are not there
 			top_bot_slope = mid_bot_slope = 10000;
 			kp = base_kp;
@@ -635,7 +2132,7 @@ int main(){
 				cout<< "top_bot_slope: " << top_bot_slope << endl;
 				
 				// SET KP lower because there is a lot of line to be had
-				kp = base_kp * 1.3;
+				kp = base_kp * 1.1;//1.3;
 				error = top_bot_slope - 0; // target right now is 0
 			}
 			// check mid and bot
@@ -648,7 +2145,7 @@ int main(){
 				cout<< "mid_bot_slope: " << mid_bot_slope << endl;
 				
 				// SET KP slightly higher since the line is almost gone(ish)
-				kp = base_kp * 2;
+				kp = base_kp * 1.2;//2;
 				error = mid_bot_slope - 0; // target right now is 0
 			}
 			

@@ -15,6 +15,8 @@
 #define COMMAND_LEFT_GREEN 1
 #define COMMAND_RIGHT_GREEN 2
 #define COMMAND_DOUBLE_GREEN 3
+#define COMMAND_DEBUG_STOP 4
+#define COMMAND_ENCODER_MOVE 5
 
 
 
@@ -308,29 +310,52 @@ void drag_turn_imu(int deg){
 }
 
 
-void forward_encoders(int distanceCM){
+void move_encoders(int distanceCM){
   int encCPR = 3575/4;
   float wheel_diameter = 6.1;
   float encPerCm = encCPR / (wheel_diameter * 3.1415);
 
   int target = encPerCm * distanceCM;
+
+  if(target > 0){
   
-  FL.speed(40);
-  FR.speed(40);
-  BL.speed(40);
-  BR.speed(40);
-
-  encoders = 0;
-  while(encoders < target){
-    //Serial.print("Enc: ");
-    //Serial.println(encoders);
-    delay(2);
+    FL.speed(40);
+    FR.speed(40);
+    BL.speed(40);
+    BR.speed(40);
+  
+    encoders = 0;
+    while(encoders < target){
+      //Serial.print("Enc: ");
+      //Serial.println(encoders);
+      delay(2);
+    }
+  
+    FL.speed(0);
+    FR.speed(0);
+    BL.speed(0);
+    BR.speed(0);
   }
+  else{
+    FL.speed(-40);
+    FR.speed(-40);
+    BL.speed(-40);
+    BR.speed(-40);
+  
+    encoders = 0;
+    while(encoders > target){
+      //Serial.print("Enc: ");
+      //Serial.println(encoders);
+      delay(2);
+    }
+  
+    FL.speed(0);
+    FR.speed(0);
+    BL.speed(0);
+    BR.speed(0);
 
-  FL.speed(0);
-  FR.speed(0);
-  BL.speed(0);
-  BR.speed(0);
+    
+  }
 }
 
 
@@ -398,9 +423,11 @@ void loop() {
   }
   
   if(Serial1.available()){
-    Serial.print("data recieved: ");
-    Serial.print(Serial1.available());
-    Serial.println(" bytes");
+    // give time to get all bytes??????
+    //delay(2);//???????????????????????????????????????????????????????
+    //Serial.print("data recieved: ");
+    //Serial.print(Serial1.available());
+    //Serial.println(" bytes");
 
     move_command = Serial1.parseInt();
     
@@ -426,7 +453,7 @@ void loop() {
       // left turn green
 
       
-      forward_encoders(5);
+      move_encoders(5);
       
       tone(22, 200, 200);
       delay(200);
@@ -440,7 +467,7 @@ void loop() {
       tone(22, 200, 200);
       delay(200);
 
-      forward_encoders(5);
+      move_encoders(4);
 
       Serial1.write("c");
       delay(100);
@@ -449,7 +476,7 @@ void loop() {
      else if(move_command == COMMAND_RIGHT_GREEN){
       // right turn green
       
-      forward_encoders(5);
+      move_encoders(5);
       
       tone(22, 500, 200);
       delay(200);
@@ -463,7 +490,7 @@ void loop() {
       tone(22, 500, 200);
       delay(200);
 
-      forward_encoders(5);
+      move_encoders(4);
       
       Serial1.write("c");
       delay(100);
@@ -487,11 +514,42 @@ void loop() {
       tone(22, 800, 200);
       delay(200);
 
-      forward_encoders(5);
+      move_encoders(4);
 
       Serial1.write("c");
       delay(100);
       
+    }else if(move_command == COMMAND_DEBUG_STOP){
+      FL.speed(0);
+      FR.speed(0);
+      BL.speed(0);
+      BR.speed(0);
+      tone(22, 500, 200);
+      delay(300);
+      tone(22, 500, 200);
+      delay(300);
+      tone(22, 500, 200);
+      delay(300);
+    }
+    else if(move_command == COMMAND_ENCODER_MOVE){
+      // when the command is sent for encoder move, FL will contain the dist in CM
+
+      Serial.print("ENCODER MOVE COMMAND: ");
+      Serial.println(FLs);
+      
+      FL.speed(0);
+      FR.speed(0);
+      BL.speed(0);
+      BR.speed(0);
+      tone(22, 500, 200);
+      delay(300);
+      tone(22, 500, 200);
+      delay(300);
+      move_encoders(FLs);
+
+      
+      Serial1.write("c");
+      delay(10);
     }
 
     // clear buffer???

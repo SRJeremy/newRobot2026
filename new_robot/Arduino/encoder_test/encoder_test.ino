@@ -72,25 +72,48 @@ void setup() {
   int encCPR = 3575/4;
   float wheel_diameter = 6.1;
   float encPerCm = encCPR / (wheel_diameter * 3.1415);
-  int distanceCM = 20;
+  int distanceCM = -5;
 
   int target = encPerCm * distanceCM;
+
+  if(target > 0){
   
-  FL.speed(40);
-  FR.speed(40);
-  BL.speed(40);
-  BR.speed(40);
-
-  encoders = 0;
-  while(encoders < target){
-    Serial.print("Enc: ");
-    Serial.println(encoders);
+    FL.speed(40);
+    FR.speed(40);
+    BL.speed(40);
+    BR.speed(40);
+  
+    encoders = 0;
+    while(encoders < target){
+      Serial.print("Enc: ");
+      Serial.println(encoders);
+    }
+  
+    FL.speed(0);
+    FR.speed(0);
+    BL.speed(0);
+    BR.speed(0);
   }
+  else{
 
-  FL.speed(0);
-  FR.speed(0);
-  BL.speed(0);
-  BR.speed(0);
+    FL.speed(-40);
+    FR.speed(-40);
+    BL.speed(-40);
+    BR.speed(-40);
+  
+    encoders = 0;
+    while(encoders > target){
+      Serial.print("Enc: ");
+      Serial.println(encoders);
+    }
+  
+    FL.speed(0);
+    FR.speed(0);
+    BL.speed(0);
+    BR.speed(0);
+    
+  }
+  
   
 }
 
