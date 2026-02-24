@@ -327,6 +327,9 @@ void handle_gap(){
 		
 		imshow("GAP IMG", img);
 		input = waitKey(1);
+		if(input == 'q'){
+			return;
+		}
 		
 		// grayscale, blur, and threshold the line
 		Mat img_line, line_only;
@@ -515,6 +518,9 @@ void handle_gap(){
 	
 	imshow("DEBUG42", img);
 	input = waitKey(0);
+	if(input == 'q'){
+		return;
+	}
 	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
 	
 	
@@ -525,11 +531,18 @@ void handle_gap(){
 		resize(img, img, Size(640/2, 480/2));
 		flip(img, img, -1); // flip so facing right way
 		
+		imshow("img", img);
+		input = waitKey(1);
+		if(input == 'q'){
+			return;
+		}
+		
 		// grayscale, blur, and threshold the line
 		Mat img_line, line_only;
 		cvtColor(img, img_line, COLOR_BGR2GRAY);
 		medianBlur(img_line, img_line, 3);
 		threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
+		
 		
 		// get the contours of the whole line
 			vector<vector<Point>> contours_line;
@@ -664,10 +677,17 @@ void handle_gap(){
 					input = waitKey(0);
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
 					
+					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW  just kidding, turn until the forward line is detected
 					do{
 						cameras[ROOM1_CAM].getVideoFrame(img, 1000);
 						resize(img, img, Size(640/2, 480/2));
 						flip(img, img, -1); // flip so facing right way
+						
+						imshow("img", img);
+						input = waitKey(1);
+						if(input == 'q'){
+							return;
+						}
 						
 						// grayscale, blur, and threshold the line
 						Mat img_line, line_only;
@@ -786,9 +806,7 @@ void handle_gap(){
 					
 					
 					
-					
-										
-					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW
+		
 					return;
 					
 				}
@@ -808,11 +826,17 @@ void handle_gap(){
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
 					
 					
-					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW
+					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW  just kidding, turn until the forward line is detected
 					do{
 						cameras[ROOM1_CAM].getVideoFrame(img, 1000);
 						resize(img, img, Size(640/2, 480/2));
 						flip(img, img, -1); // flip so facing right way
+						
+						imshow("img", img);
+						input = waitKey(1);
+						if(input == 'q'){
+							return;
+						}
 						
 						// grayscale, blur, and threshold the line
 						Mat img_line, line_only;
@@ -2090,7 +2114,9 @@ int main(){
 				
 				// function to handle gap or crazy line???? how to do this???
 				cout << "GAP\nGAP\nGAP\nGAP\nGAP\n" << endl;
-				handle_gap();
+				if(!stop_motors){
+					handle_gap();
+				}
 				cout << "done\ndone\ndone\ndone\ndone\n" << endl;
 				
 				
@@ -2263,6 +2289,34 @@ int main(){
 		
 		// add this stuff to line trace i think...
 		//input = waitKey(1);
+		
+		
+		if(!TESTING && !stop_motors){
+			rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+					
+			if(rx_length > 0){
+				rx_buffer[rx_length] = '\0';
+				printf("command from pico %s\n", rx_buffer);
+			}
+			
+			if(rx_buffer[0] == '0'){
+				stop_motors = 1;
+			}
+		}
+		
+		if(!TESTING && stop_motors){
+			rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+					
+			if(rx_length > 0){
+				rx_buffer[rx_length] = '\0';
+				printf("command from pico %s\n", rx_buffer);
+			}
+			
+			if(rx_buffer[0] == 'g'){
+				stop_motors = 0;
+			}
+		}
+		
 		
 		if(input == ' '){
 			stop_motors = 1;

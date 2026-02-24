@@ -419,6 +419,13 @@ void loop() {
   if(digitalRead(21) == 0 || digitalRead(20) == 0)
   {
     stop_motors = !stop_motors;
+
+    if(stop_motors == 0){
+      Serial1.write("g");
+    }
+    else if(stop_motors == 1){
+      Serial1.write("0qq");
+    }
     delay(40);
   }
   
