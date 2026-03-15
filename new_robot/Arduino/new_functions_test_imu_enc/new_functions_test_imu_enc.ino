@@ -17,7 +17,7 @@
 #define COMMAND_DOUBLE_GREEN 3
 #define COMMAND_DEBUG_STOP 4
 #define COMMAND_ENCODER_MOVE 5
-#define COMMAND_IMU_TURN 6
+
 
 
 int bnoID = 55;
@@ -369,9 +369,6 @@ void setup() {
   Serial1.setTX(16);
   Serial1.begin(115200);
 
-  pixels.begin();
-  pixels.setBrightness(50);
-
   pinMode(direction_pin, INPUT);
   pinMode(encoder_pin, INPUT);
   attachInterrupt(encoder_pin,enc_update, RISING);
@@ -396,188 +393,43 @@ void setup() {
   pinMode(21, INPUT);
   while (digitalRead(21) == 1) // while not pressed
   {
-    rainbowCycle(5);
+    //rainbowCycle(5);
   }
   while(digitalRead(21) == 0);  // while pressed, wait for release
-  Serial1.write("s");
+  //Serial1.write("s");
 
 
   // SETUP REGULAR LIGHTING
   //pixels.setBrightness(50);
-  for(int i = 0; i < NUMPIXELS; i++){
-    pixels.setPixelColor(i, pixels.Color(BRIGHT, BRIGHT, BRIGHT));
-  }
+  //for(int i = 0; i < NUMPIXELS; i++){
+  //  pixels.setPixelColor(i, pixels.Color(BRIGHT, BRIGHT, BRIGHT));
+  //}
   pixels.show();
+
+
+
+//   FL.speed(40);
+//   FR.speed(-40);
+//   BL.speed(40);
+//   BR.speed(-40);
+//   delay(400);
+//   FL.speed(0);
+//   FR.speed(0);
+//   BL.speed(0);
+//   BR.speed(0);
+//   delay(1000); 
+
+
+  turn_imu(180);
+
+
+
+
   
 }
 
-int stop_motors = 0;
-int FLs = 0, FRs = 0, BLs = 0, BRs = 0;
-int move_command = 0;
+
 void loop() {
-
-  if(digitalRead(21) == 0 || digitalRead(20) == 0)
-  {
-    stop_motors = !stop_motors;
-
-    if(stop_motors == 0){
-      Serial1.write("g");
-    }
-    else if(stop_motors == 1){
-      Serial1.write("0qq");
-    }
-    delay(40);
-  }
-  
-  if(Serial1.available()){
-    // give time to get all bytes??????
-    //delay(2);//???????????????????????????????????????????????????????
-    //Serial.print("data recieved: ");
-    //Serial.print(Serial1.available());
-    //Serial.println(" bytes");
-
-    move_command = Serial1.parseInt();
-    
-
-    FLs = Serial1.parseInt();
-    FRs = Serial1.parseInt();
-    BLs = Serial1.parseInt();
-    BRs = Serial1.parseInt();
-
-    if(stop_motors){
-      FLs = FRs = BLs = BRs = 0;
-    }
-
-    // check the move command
-    if(move_command == COMMAND_LINE_TRACE) {
-      // line trace
-      FL.speed(FLs);
-      FR.speed(FRs);
-      BL.speed(BLs);
-      BR.speed(BRs);
-    }
-    else if(move_command == COMMAND_LEFT_GREEN){
-      // left turn green
-
-      
-      move_encoders(3);
-      
-      tone(22, 200, 200);
-      delay(200);
-
-      turn_imu(-90);
-
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 200, 200);
-      delay(200);
-
-      move_encoders(4);
-
-      Serial1.write("c");
-      delay(100);
-      
-    }
-     else if(move_command == COMMAND_RIGHT_GREEN){
-      // right turn green
-      
-      move_encoders(3);
-      
-      tone(22, 500, 200);
-      delay(200);
-
-      turn_imu(90);
-
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 500, 200);
-      delay(200);
-
-      move_encoders(4);
-      
-      Serial1.write("c");
-      delay(100);
-      
-    }
-     else if(move_command == COMMAND_DOUBLE_GREEN){
-      // double turn green
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 800, 200);
-      delay(200);
-
-      turn_imu(180);
-
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 800, 200);
-      delay(200);
-
-      move_encoders(4);
-
-      Serial1.write("c");
-      delay(100);
-      
-    }else if(move_command == COMMAND_DEBUG_STOP){
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 500, 200);
-      delay(300);
-      tone(22, 500, 200);
-      delay(300);
-      tone(22, 500, 200);
-      delay(300);
-    }
-    else if(move_command == COMMAND_ENCODER_MOVE){
-      // when the command is sent for encoder move, FL will contain the dist in CM
-
-      Serial.print("ENCODER MOVE COMMAND: ");
-      Serial.println(FLs);
-      
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 500, 200);
-      delay(300);
-      tone(22, 500, 200);
-      delay(300);
-      move_encoders(FLs);
-
-      
-      Serial1.write("c");
-      delay(10);
-    }
-    else if (move_command == COMMAND_IMU_TURN){
-      Serial.print("IMU TURN COMMAND: ");
-      Serial.println(FLs);
-
-      FL.speed(0);
-      FR.speed(0);
-      BL.speed(0);
-      BR.speed(0);
-      tone(22, 900, 200);
-      delay(300);
-
-      turn_imu(FLs);
-
-      Serial1.write("c");
-      delay(2);
-      
-    }
-
-    // clear buffer???
-    while(Serial1.available()) Serial1.read();
-  }
+  // put your main code here, to run repeatedly:
 
 }

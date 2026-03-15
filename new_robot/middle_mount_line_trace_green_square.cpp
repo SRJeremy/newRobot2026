@@ -74,6 +74,7 @@ input = waitKey(0);
 #define COMMAND_DOUBLE_GREEN 3
 #define COMMAND_DEBUG_STOP 4
 #define COMMAND_ENCODER_MOVE 5
+#define COMMAND_IMU_TURN 6
 
 // if this is 0 green will be checked for like normal and handled 
 // when green is detected and handled this is set to 1 UNTIL green is no longer detected at all, then it is set back to 0
@@ -176,9 +177,9 @@ char green_square(Mat &img, Mat &line){
 	}
 	
 	// if green has already been handled and there are contours, ignore them and just return 0
-	if(Green_Already == 1){
-		return 0;
-	}
+	//if(Green_Already == 1){
+	//	return 0;
+	//}
 	
 	// sort by contour area
 	//printf("\nSorted %zu contours\n", contours.size());
@@ -304,7 +305,7 @@ char green_square(Mat &img, Mat &line){
 
 void handle_gap(){
 	int gap_centered = 0; // flag to indicate if the gap is centered
-	
+	int stopPoint = 20; // stop distance for the y value of the topleft of the line... when the line is near the beginning top of the frame the robot has backed up enough
 	
 	// this is going to be a lot of work..... need to backup and straighten out on the gaps....
 	Mat img;
@@ -315,6 +316,8 @@ void handle_gap(){
 	float kp = 1.5;
 	float base_kp = kp;
 	int delta;
+	
+	// line trace backwards to line up with the gap
 	do{
 		
 		if (!cameras[ROOM1_CAM].getVideoFrame(img, 1000)) {
@@ -344,12 +347,30 @@ void handle_gap(){
 		if(contours_line.size() > 0){
 			
 		
-			// find largest contour
+			// find largest contour on BOTTOM OF IMAGE
+			vector<Point> line;
+			int line_y = -10;
+			for(auto& cnt : contours_line){
+				Moments m = moments(cnt);
+				//int mx = m.m10 / m.m00; // col
+				int my = m.m01 / m.m00; // row
+				
+				if(my > line_y){
+					line_y = my;
+					line = cnt;
+				}
+			}
 			// max element returns pointer so dereference here
-			vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
+			//vector<Point> line = *max_element(contours_line.begin(), contours_line.end(), contour_compare);
 			
 			// draw the largest contour (the line)
 			//drawContours(og_img, vector<vector<Point>>(1, line), -1, Scalar(0, 127, 0), 2);
+			
+			Rect lineRect = boundingRect(line);
+			Point lineTL = lineRect.tl();
+			if(lineTL.y < stopPoint){
+				gap_centered = 1;
+			}
 			
 			
 			// SHOULD REDRAW LINE ON BLANK IMAGE TO ENSURE NOTHING ELSE SHOWS UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -498,7 +519,9 @@ void handle_gap(){
 				printf("Continue command: %s\n", rx_buffer);
 			}
 			*/
-			gap_centered = 2; // this is kindof an error code.....
+			
+			
+			//gap_centered = 2; // this is kindof an error code.....
 		}
 		
 		
@@ -509,6 +532,7 @@ void handle_gap(){
 	//write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
 	
 	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
 	FL = FR = BL = BR = 0;
 	sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 	write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
@@ -521,11 +545,16 @@ void handle_gap(){
 	if(input == 'q'){
 		return;
 	}
+	
 	// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+	
+	
 	
 	
 	// make sure the line is straight
 	int line_angle = 1000;
+	int wide_rect_scalar = 4;
+	int tall_rect_scalar = 10;
 	do{
 		cameras[ROOM1_CAM].getVideoFrame(img, 1000);
 		resize(img, img, Size(640/2, 480/2));
@@ -550,6 +579,10 @@ void handle_gap(){
 			
 			if(contours_line.size() > 0){
 				
+				if(contours_line.size() > 1){
+					// might see a line still ahead of the ... its on a small gap
+				}
+				
 			
 				// find largest contour
 				// max element returns pointer so dereference here
@@ -563,8 +596,7 @@ void handle_gap(){
 				line_only = Mat::zeros(img_line.rows, img_line.cols, CV_8UC1);
 				drawContours(line_only, vector<vector<Point>>(1, line), -1, 255, -1);
 				
-				int wide_rect_scalar = 4;
-				int tall_rect_scalar = 10;
+				
 				// top slice
 				Rect top_rect(0,0, line_only.cols, line_only.rows/wide_rect_scalar);
 				Mat top_img = line_only(top_rect);
@@ -592,9 +624,11 @@ void handle_gap(){
 				//rectangle(og_img, right_rect, Scalar(127, 127, 0), 1);
 				
 				
-				// slop from bot line to top line or bot to mid...
+				// slope from bot line to top line or bot to mid...
 				int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
 				int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+				// getting rid of warnings!!
+				lefty += righty += 0;
 				Moments m;
 				
 				vector<vector<Point>> top_contour;
@@ -666,6 +700,7 @@ void handle_gap(){
 					// very sharp right turn
 					
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					/*
 					FL = FR = BL = BR = 0;
 					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
@@ -673,9 +708,29 @@ void handle_gap(){
 					resize(img, img, Size(640/2, 480/2));
 					flip(img, img, -1); // flip so facing right way
 					
+					cout << "SHARP RIGHT" << endl;
 					imshow("SR", img);
 					input = waitKey(0);
+					*/
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					
+					
+					
+					// turn left sharp first, then search for line
+					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_IMU_TURN, 110, 0, 0, 0);
+					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+					
+					// wait for arduino side to send back the ALL DONE command
+					if(!TESTING && !stop_motors){
+						rx_length = 0;
+						while (rx_length <=0) 				 								//remove the while to make this non-blocking
+							rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+					
+						rx_buffer[rx_length] = '\0';
+						printf("Continue command: %s\n", rx_buffer);
+					}
+					
+					
 					
 					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW  just kidding, turn until the forward line is detected
 					do{
@@ -746,6 +801,9 @@ void handle_gap(){
 							// slop from bot line to top line or bot to mid...
 							int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
 							int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+							
+							// getting rid of warnings!!
+							topx += topy += midx += midy += botx += boty += leftx += lefty += rightx += righty += 0;
 							Moments m;
 							
 							vector<vector<Point>> top_contour;
@@ -779,13 +837,13 @@ void handle_gap(){
 							}
 						
 						
-							FL = 40;
-							BL = 40;
-							FR = -40;
-							BR = -40;
+							FL = 60;
+							BL = 60;
+							FR = -60;
+							BR = -60;
 							
 							
-							if(abs(midx - (line_only.cols/2)) < 10) {
+							if(abs(topx - (line_only.cols/2)) < 10) {
 								break;
 							}
 						
@@ -814,6 +872,7 @@ void handle_gap(){
 					// very sharp left turn
 					
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					/*
 					FL = FR = BL = BR = 0;
 					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
@@ -821,9 +880,27 @@ void handle_gap(){
 					resize(img, img, Size(640/2, 480/2));
 					flip(img, img, -1); // flip so facing right way
 					
+					cout << "SHARP LEFT" << endl;
 					imshow("SL", img);
 					input = waitKey(0);
+					*/
 					// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+					
+					
+					
+					// turn left sharp first, then search for line
+					sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_IMU_TURN, -110, 0, 0, 0);
+					write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
+					
+					// wait for arduino side to send back the ALL DONE command
+					if(!TESTING && !stop_motors){
+						rx_length = 0;
+						while (rx_length <=0) 				 								//remove the while to make this non-blocking
+							rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+					
+						rx_buffer[rx_length] = '\0';
+						printf("Continue command: %s\n", rx_buffer);
+					}
 					
 					
 					// NOT SURE WHAT TO DO ABOUT THIS RIGHT NOW  just kidding, turn until the forward line is detected
@@ -895,6 +972,9 @@ void handle_gap(){
 							// slop from bot line to top line or bot to mid...
 							int topx = 0, topy = 0, midx = 0, midy = 0, botx = 0, boty = 0;// MAKE THIS a single array with macros for indexing or somthing????
 							int leftx = 0, lefty = 0, rightx = 0, righty = 0;
+							// getting rid of warnings!!
+							topx += topy += midx += midy += botx += boty += leftx += lefty += rightx += righty += 0;
+							
 							Moments m;
 							
 							vector<vector<Point>> top_contour;
@@ -928,13 +1008,13 @@ void handle_gap(){
 							}
 						
 						
-							FL = -40;
-							BL = -40;
-							FR = 40;
-							BR = 40;
+							FL = -60;
+							BL = -60;
+							FR = 60;
+							BR = 60;
 							
 							
-							if(abs(midx - (line_only.cols/2)) < 10) {
+							if(abs(topx - (line_only.cols/2)) < 10) {
 								break;
 							}
 						
@@ -970,6 +1050,19 @@ void handle_gap(){
 					if(line_angle > 0) line_angle -= 90;
 					else if(line_angle < 0) line_angle += 90;
 				}
+				else{
+				
+				
+				
+				
+				
+					// somthing has gone wrong!!! there is not enough line in the image right now..... maybe there is line at the top view though???
+				
+				
+				
+				
+				
+				}
 
 				cout << "LINE ANGLE: " << line_angle << endl;
 
@@ -995,6 +1088,10 @@ void handle_gap(){
 				write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
 			}
 			else{
+				
+				
+				// this shouldnt really ever happen....... BUT
+				
 				// just keep driving forward
 				FL = target_speed;
 				BL = target_speed;
@@ -1006,12 +1103,13 @@ void handle_gap(){
 			}
 		}while(abs(line_angle) > 3);
 		
-		
+		/*
 		FL = FR = BL = BR = 0;
 		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
 		
 		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+		
 		FL = FR = BL = BR = 0;
 		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
@@ -1021,10 +1119,14 @@ void handle_gap(){
 		
 		imshow("DEBUG42", img);
 		input = waitKey(0);
+		* */
 		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
 	
 	
 		this_thread::sleep_for(50ms);
+		
+		
+		
 		
 		
 		// JUST DRIVE FORWARD WHILE THERE IS A LINE... THEN DRIVE WHILE THERE IS NO LINE...
@@ -1037,23 +1139,58 @@ void handle_gap(){
 		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
 		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));		//Filestream, bytes to write, number of bytes to write
 		
-		int num_contours = 1;
+		int num_contours = 0;
 		do{
 			cameras[ROOM1_CAM].getVideoFrame(img, 1000);
 			resize(img, img, Size(640/2, 480/2));
 			flip(img, img, -1); // flip so facing right way
 			
 			// grayscale, blur, and threshold the line
-			Mat img_line, line_only;
+			Mat img_line;
 			cvtColor(img, img_line, COLOR_BGR2GRAY);
 			medianBlur(img_line, img_line, 3);
 			threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
 			
-			// get the contours of the whole line
+			// get the contours of the BOTTOM ONLY line
+			// bottom slice
+			Rect bot_rect(0, (wide_rect_scalar-1) * (img_line.rows/wide_rect_scalar), img_line.cols, img_line.rows/wide_rect_scalar);
+			Mat bot_img = img_line(bot_rect);
+			
+			// middle slice
+			Rect mid_rect(0, img_line.rows/wide_rect_scalar, img_line.cols, (wide_rect_scalar-2) * (img_line.rows/wide_rect_scalar));
+			Mat mid_img = img_line(mid_rect);
+			
 			vector<vector<Point>> contours_line;
-			findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			findContours(bot_img, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 			num_contours = contours_line.size();
 		}while(num_contours > 0);
+		
+		
+		/*
+		FL = FR = BL = BR = 0;
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+		
+		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+		
+		FL = FR = BL = BR = 0;
+		sprintf(tx_buffer, "[%d][%d,%d,%d,%d]", COMMAND_LINE_TRACE, FL, FR, BL, BR);
+		write(uart0_filestream, &tx_buffer[0], strlen(tx_buffer));
+		cameras[ROOM1_CAM].getVideoFrame(img, 1000);
+		resize(img, img, Size(640/2, 480/2));
+		flip(img, img, -1); // flip so facing right way
+		
+		imshow("DEBUG42", img);
+		input = waitKey(0);
+		*/
+		// DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP DEBUG STOP
+		
+		
+		
+		
+		
+		
+		//drive forward until line is found in the middle again
 		
 		target_speed = 40;
 		FL = target_speed;
@@ -1075,9 +1212,12 @@ void handle_gap(){
 			medianBlur(img_line, img_line, 3);
 			threshold(img_line, img_line, 120, 255, THRESH_BINARY_INV);
 			
-			// get the contours of the whole line
+			// get the top
+			// top slice
+			Rect top_rect(0,0, img_line.cols, img_line.rows/wide_rect_scalar);
+			Mat top_img = img_line(top_rect);
 			vector<vector<Point>> contours_line;
-			findContours(img_line, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+			findContours(top_img, contours_line, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 			num_contours = contours_line.size();
 		}while(num_contours <= 0);
 		
@@ -1848,10 +1988,11 @@ int main(){
 	float top_bot_slope = 0;
 	float mid_bot_slope = 0;
 	//int adjust = 0;
-	float kp = 1.4;
+	float kp = 1.1;
+	float bot_kp = 0.7;
 	float base_kp = kp;
 	float delta = 0;
-	int target_speed = 30;
+	int target_speed = 25;
 	float error = 0, bot_error = 0;
 	do{
 		
@@ -1985,7 +2126,7 @@ int main(){
 				default:
 					// no green
 					cout << "NO green detected----------" << endl;
-					//Green_Already = 0;
+					Green_Already = 0;
 				
 			}
 		}
@@ -2143,10 +2284,12 @@ int main(){
 			if(Green_Already && topx > 0){
 				kp = 0.9;
 				error = topx - (line_only.cols/2);
+				cout << "TRACE CASE   A" << endl;
 			}
 			else if(Green_Already && midx > 0){
 				kp = 0.9;
 				error = midx - (line_only.cols/2);
+				cout << "TRACE CASE   B" << endl;
 			}
 			else if(!Green_Already && topx > 0 && botx > 0) {  // greater than 0 means it has a value other than the 0 that it was set to 
 				// find the slope from top to bot
@@ -2158,8 +2301,9 @@ int main(){
 				cout<< "top_bot_slope: " << top_bot_slope << endl;
 				
 				// SET KP lower because there is a lot of line to be had
-				kp = base_kp * 1.1;//1.3;
+				kp = base_kp * 1.2;//1.3;
 				error = top_bot_slope - 0; // target right now is 0
+				cout << "TRACE CASE   C" << endl;
 			}
 			// check mid and bot
 			else if(!Green_Already && midx > 0 && botx > 0) {  // greater than 0 means it has a value other than the 0 that it was set to 
@@ -2171,8 +2315,10 @@ int main(){
 				cout<< "mid_bot_slope: " << mid_bot_slope << endl;
 				
 				// SET KP slightly higher since the line is almost gone(ish)
-				kp = base_kp * 1.2;//2;
+				kp = base_kp * 1.3;//2;
 				error = mid_bot_slope - 0; // target right now is 0
+				
+				cout << "TRACE CASE   D" << endl;
 			}
 			
 			else{
@@ -2182,12 +2328,14 @@ int main(){
 			
 			
 			// calculate change based on calulcated error and kp
+			cout << "green already value: " << Green_Already << endl;
 			if(Green_Already){
 				// green handled and bot is still on intersection, use higher trace section 
 				delta = (error * kp);
 			}
 			else {
-				delta = ((error+bot_error) * kp);
+				delta = ((error*kp) + (bot_error * bot_kp));
+				//delta = ((error+(bot_error * bot_kp)) * kp);
 			}
 			
 			cout << "BOT ERROR: " << bot_error << endl;
