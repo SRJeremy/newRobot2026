@@ -1,0 +1,56 @@
+
+
+executable name: middle_mount_line_trace_green_square
+
+full path: /home/pi/jeremy/new_robot/middle_mount_line_trace_green_square
+
+
+command to execute the program and send output to log file:
+/home/pi/jeremy/new_robot/middle_mount_line_trace_green_square > /home/pi/jeremy/new_robot/LOG.txt
+
+
+
+Create start script with the following code:
+OPEN IN TERMIANL WITH "nano start_script.sh"
+#!/bin/bash
+exec -a Line_Process /home/pi/jeremy/new_robot/middle_mount_line_trace_green_square > /home/pi/jeremy/new_robot/LOG.txt &
+
+ctrl-O (output) then enter then ctrl-X
+
+change permissions to script with "chmod +x start_script.sh"
+
+
+NAVIGATE to ~/.config
+MAKE a new directory called autostart (mkdir autostart)
+Move to autostart (cd autostart)
+MAKE A NEW .desktop file called start line_start.desktop
+ADD the following code:
+[Desktop Entry]
+Type=Application
+Name=Line
+Exec=/home/pi/jeremy/new_robot/start_script.sh
+
+(write with ctrl-O (output) and then enter and then ctrl-X)
+
+
+
+
+test by calling reboot
+
+
+
+
+KILL THE PROCESS
+in command prompt use "ps aux" to find the process with the name given or executable name 
+use command "kill PID" with the process id from the ps aux call
+
+get PID of single process by using "pidof -s Line_Process"
+create a script that will find and kill this process for you by doing the following:
+MAKE A SCPRIT in home (the ~) called "kill_line.sh"
+Make it executable by running "chmod +x kill_line.sh"
+ADD THE FOLLOWING CODE:
+#!/bin/bash
+declare -i line_pid=$(pidof -s Line_Process)
+kill $line_pid
+
+so when you open the terminal you can just run ./kill_line.sh and it will find and kill the process for you

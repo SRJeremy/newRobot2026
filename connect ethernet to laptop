@@ -1,0 +1,25 @@
+left click wifi symbol, navigate to advanced options, edit connections
+
+double click ethernet
+
+ipv4 settings
+
+change method to manual
+
+add address (need to be non-routable ip address....can google some)
+NOTE: set the raspberry pi Static IP to a class B address because windows will default to class B addresses when connecting different ethernets... so it will auto work with the pi without needing to change anything.
+
+    - THIS IS RECOMMENDED 169.254.something.something (subnet) (this has the least amount to do for user)  
+
+  
+
+    
+
+EXAMPLE
+    ip address 169.254.50.42
+    netmask 255.255.0.0 (default for class b address)
+    gateway no need
+
+    TEST by running ifconfig on rpi. on windows use ipconfig and you should see the new ip address on ethernet
+
+	can now connect to the new ip address on vnc
