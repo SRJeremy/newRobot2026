@@ -95,12 +95,12 @@ int resolution_height = 1232;
 
 
 
-	char tx_buffer[256];
-	int stop_motors = 1;
-	int FL = 0, FR = 0, BL = 0, BR = 0;
-	unsigned char rx_buffer[256];
-	int rx_length = 0;
-	int input;
+char tx_buffer[256];
+int stop_motors = 1;
+int FL = 0, FR = 0, BL = 0, BR = 0;
+unsigned char rx_buffer[256];
+int rx_length = 0;
+int input;
 
 
 
@@ -1951,10 +1951,24 @@ int main(){
 
 	printf("Waiting for pico to start...\n");
 	
+	Mat start_indicator = Mat(600, 600, CV_8UC3, cv::Scalar(0, 255, 0));
+	imshow("start_indicator", start_indicator);
+	waitKey(1);
+	
+
+	
 	if(!TESTING){
-		while (rx_length <=0) 				 								//remove the while to make this non-blocking
+		while (rx_length <=0) {				 								//remove the while to make this non-blocking
 			rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
-			
+			this_thread::sleep_for(200ms);
+			if(waitKey(1) == 'q'){
+				for (auto& cam : cameras){
+					cam.stopVideo();
+				}
+				destroyAllWindows();
+				exit(0);
+			}
+		}
 		// clear the buffer?
 		//while(rx_length > 0)
 		//	rx_length = read(uart0_filestream, (void*)rx_buffer, 255);
@@ -2533,9 +2547,12 @@ int main(){
 	
 	
 	
-	cameras[ROOM1_CAM].stopVideo();
+	//cameras[ROOM1_CAM].stopVideo();
+	for (auto& cam : cameras){
+		cam.stopVideo();
+	}
 	destroyAllWindows();
 	
-	
+	return 0;
 	
 }
