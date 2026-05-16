@@ -82,6 +82,8 @@ int Green_Already = 0;
 
 
 
+int stop_motors = 0;
+
 
 
 
@@ -96,7 +98,7 @@ int resolution_height = 1232;
 
 
 char tx_buffer[256];
-int stop_motors = 1;
+
 int FL = 0, FR = 0, BL = 0, BR = 0;
 unsigned char rx_buffer[256];
 int rx_length = 0;

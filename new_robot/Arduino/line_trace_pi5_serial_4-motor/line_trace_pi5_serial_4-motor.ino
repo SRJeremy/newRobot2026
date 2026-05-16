@@ -1,10 +1,11 @@
-
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "Adafruit_APDS9960.h"
 #include <Adafruit_BNO055.h>
+#include <Servo.h>
+
 
 #define NEOPIN 7
 #define NUMPIXELS 24
@@ -20,11 +21,23 @@
 #define COMMAND_IMU_TURN 6
 
 
+
+
 int bnoID = 55;
 int bnoADDR = 0x28;
 
 Adafruit_BNO055 bno(bnoID, bnoADDR);
 sensors_event_t sensorData;
+
+Servo arm;
+Servo Lclaw;
+Servo Rclaw;
+const int Arm_Up = 55;
+const int Arm_Down = 110;
+const int LClaw_Open = 170;
+const int LClaw_Close = 25;
+const int RClaw_Open = 30;
+const int RClaw_Close = 160;
 
 
 
@@ -385,6 +398,15 @@ void setup() {
     Serial.println("IMU Failed");
     while(1); // dont proceed
   }
+
+  arm.attach(6, 500, 2500);
+  arm.write(Arm_Down);
+
+  Lclaw.attach(5, 400, 2400);
+  Rclaw.attach(4, 400, 2400);
+
+  Lclaw.write(LClaw_Open);
+  Rclaw.write(RClaw_Open);
   
 
   delay(2000);
@@ -424,7 +446,7 @@ void loop() {
       Serial1.write("g");
     }
     else if(stop_motors == 1){
-      Serial1.write("0qq");
+      Serial1.write("0");
     }
     delay(40);
   }
